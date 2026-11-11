@@ -177,7 +177,7 @@ private fun MedicalApp(repository: QuestionRepository, db: QuestionDatabase) {
             }
             Text("عدد الأسئلة: ${examSize.coerceAtMost(questions.size)}", color = Navy, fontWeight = FontWeight.SemiBold)
             Slider(
-                value = examSize.toFloat().coerceIn(1f, questions.size.coerceAtLeast(1).toFloat()),
+                value = examSize.toFloat().coerceIn(1f, questions.size.coerceAtLeast(2).toFloat()),
                 onValueChange = { examSize = it.toInt().coerceAtLeast(1) },
                 valueRange = 1f..questions.size.coerceAtLeast(1).toFloat()
             )
