@@ -179,7 +179,7 @@ private fun MedicalApp(repository: QuestionRepository, db: QuestionDatabase) {
             Slider(
                 value = examSize.toFloat().coerceIn(1f, questions.size.coerceAtLeast(2).toFloat()),
                 onValueChange = { examSize = it.toInt().coerceAtLeast(1) },
-                valueRange = 1f..questions.size.coerceAtLeast(1).toFloat()
+                valueRange = 1f..questions.size.coerceAtLeast(2).toFloat()
             )
             Text("مدة الاختبار", color = Navy, fontWeight = FontWeight.SemiBold)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
