@@ -1,24 +1,39 @@
 # MultiChoice Medical
 
-تطبيق أندرويد عربي للتدريب على أسئلة الاختيار من متعدد الطبية، مع بنك أسئلة محلي وإمكانية مزامنته مع Supabase.
+تطبيق Android عربي للتدرب على أسئلة الاختيار من متعدد الطبية (MCQ)، يبدأ ببنك تجريبي لطب الأطفال.
 
-## المزايا في النسخة الأولية
-- واجهة عربية RTL باستخدام Jetpack Compose.
-- أسئلة طبية تجريبية (طب الأطفال) مع تصحيح وشرح.
-- تخزين محلي باستخدام Room.
-- مزامنة اختيارية للأسئلة من Supabase REST.
-- بناء APK تلقائياً عبر GitHub Actions.
+## ما يعمل في النسخة الحالية
+- واجهة عربية RTL مبنية بـ Kotlin وJetpack Compose.
+- اختيار الإجابة ثم إظهار التصحيح والتفسير.
+- احتساب نتيجة الاختبار.
+- حفظ بنك الأسئلة محلياً باستخدام Room، والعمل دون اتصال بعد أول تشغيل.
+- مزامنة تنزيلية اختيارية من Supabase REST.
+- بناء APK تجريبي تلقائياً بواسطة GitHub Actions.
 
-## البناء
-يتطلب JDK 17 وGradle 8.9:
+## تشغيل محلي
+- Android Studio حديث.
+- JDK 17.
+- Gradle 8.9.
+
 ```bash
 gradle assembleDebug
 ```
-الناتج: `app/build/outputs/apk/debug/app-debug.apk`
+
+ملف APK الناتج: `app/build/outputs/apk/debug/app-debug.apk`
+
+## تنزيل APK من GitHub
+افتح تبويب Actions، ثم آخر تشغيل ناجح لسير عمل **Android APK**، ثم نزّل Artifact باسم `MultiChoiceMedical-debug-apk`. هذا APK تجريبي موقّع بمفتاح debug، وليس إصدار متجر Google Play.
 
 ## إعداد Supabase (اختياري)
-أنشئ جدولاً باسم `questions` بالأعمدة: `id` (bigint primary key), `category`, `question`, `option_a`, `option_b`, `option_c`, `option_d`, `correct_index` (0–3), `explanation`.
+1. أنشئ مشروع Supabase.
+2. نفّذ ملف `supabase/schema.sql` في SQL Editor.
+3. أضف GitHub Actions Secrets باسم `SUPABASE_URL` و`SUPABASE_ANON_KEY`.
+4. أعد تشغيل workflow أو ادفع commit جديداً.
 
-أضف أسرار GitHub `SUPABASE_URL` و`SUPABASE_ANON_KEY` من Settings → Secrets and variables → Actions. لا تضع مفتاح service_role داخل التطبيق، وفعّل RLS وسياسات القراءة المناسبة.
+التطبيق يجلب الأسئلة من جدول `public.questions` ويحفظها محلياً. المزامنة الحالية تنزيلية فقط؛ لا توجد واجهة إدارة أسئلة أو مزامنة رفع من التطبيق حتى الآن. لا تضع مفتاح `service_role` داخل التطبيق. راجع سياسات RLS قبل نشر بنك أسئلة تجاري أو خاص.
 
-> المحتوى الطبي تجريبي تعليمي ويجب مراجعته علمياً قبل استخدامه للتحضير الرسمي أو اتخاذ قرارات سريرية.
+## تنبيه طبي
+الأسئلة الموجودة أمثلة أولية لأغراض اختبار التطبيق فقط، وليست بنكاً معتمداً لامتحان البورد ولا مرجعاً لاتخاذ القرار السريري. يجب مراجعة المحتوى والإجابات والتفسيرات من مصادر طبية حديثة قبل الاستخدام التعليمي الرسمي.
+
+## الحزمة
+`com.multichoice.medical`
