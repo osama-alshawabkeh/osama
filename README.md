@@ -27,8 +27,9 @@ gradle assembleDebug
 ## إعداد Supabase (اختياري)
 1. أنشئ مشروع Supabase.
 2. نفّذ ملف `supabase/schema.sql` في SQL Editor.
-3. أضف GitHub Actions Secrets باسم `SUPABASE_URL` و`SUPABASE_ANON_KEY`.
-4. أعد تشغيل workflow أو ادفع commit جديداً.
+3. نفّذ ملف `supabase/seed.sql` لإضافة الأسئلة التجريبية.
+4. أضف GitHub Actions Secrets باسم `SUPABASE_URL` و`SUPABASE_ANON_KEY`.
+5. أعد تشغيل workflow أو ادفع commit جديداً.
 
 التطبيق يجلب الأسئلة من جدول `public.questions` ويحفظها محلياً. المزامنة الحالية تنزيلية فقط؛ لا توجد واجهة إدارة أسئلة أو مزامنة رفع من التطبيق حتى الآن. لا تضع مفتاح `service_role` داخل التطبيق. راجع سياسات RLS قبل نشر بنك أسئلة تجاري أو خاص.
 
