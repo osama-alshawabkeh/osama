@@ -18,9 +18,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.multichoice.medical.data.ExamResult
 import com.multichoice.medical.data.Question
 import com.multichoice.medical.data.QuestionDatabase
 import com.multichoice.medical.data.QuestionRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val Navy = Color(0xFF102A43)
@@ -30,57 +32,105 @@ private val Page = Color(0xFFF4F7FA)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val repository = QuestionRepository(QuestionDatabase.get(this).questionDao())
+        val db = QuestionDatabase.get(this)
         setContent {
-            MaterialTheme(
-                colorScheme = lightColorScheme(primary = Teal, secondary = Navy, background = Page)
-            ) { MedicalApp(repository) }
+            MaterialTheme(colorScheme = lightColorScheme(primary = Teal, secondary = Navy, background = Page)) {
+                MedicalApp(QuestionRepository(db.questionDao()), db)
+            }
         }
     }
 }
 
 @Composable
-private fun MedicalApp(repository: QuestionRepository) {
+private fun MedicalApp(repository: QuestionRepository, db: QuestionDatabase) {
     val scope = rememberCoroutineScope()
     var questions by remember { mutableStateOf<List<Question>>(emptyList()) }
+    var history by remember { mutableStateOf<List<ExamResult>>(emptyList()) }
+    var message by remember { mutableStateOf("جاري تحميل الأسئلة…") }
     var loading by remember { mutableStateOf(true) }
-    var message by remember { mutableStateOf("جاري تجهيز بنك الأسئلة…") }
-    var current by remember { mutableIntStateOf(0) }
+    var category by remember { mutableStateOf("الكل") }
+    var examSize by remember { mutableIntStateOf(10) }
+    var timerMinutes by remember { mutableIntStateOf(0) }
+    var secondsLeft by remember { mutableIntStateOf(0) }
+    var exam by remember { mutableStateOf<List<Question>>(emptyList()) }
+    var index by remember { mutableIntStateOf(0) }
     var selected by remember { mutableIntStateOf(-1) }
     var answered by remember { mutableStateOf(false) }
     var score by remember { mutableIntStateOf(0) }
-    var started by remember { mutableStateOf(false) }
+    var running by remember { mutableStateOf(false) }
     var finished by remember { mutableStateOf(false) }
+    var historyScreen by remember { mutableStateOf(false) }
+    var saved by remember { mutableStateOf(false) }
+    var startedAt by remember { mutableLongStateOf(0L) }
+
+    suspend fun refreshHistory() { history = db.examResultDao().latest() }
 
     LaunchedEffect(Unit) {
         runCatching { repository.questions() }
-            .onSuccess { questions = it; message = "متاح دون إنترنت" }
-            .onFailure { message = "تعذر تحميل الأسئلة: ${it.localizedMessage}" }
+            .onSuccess { questions = it; message = "جاهز للعمل دون إنترنت" }
+            .onFailure { message = it.localizedMessage ?: "تعذر تحميل الأسئلة" }
+        refreshHistory()
         loading = false
     }
 
-    fun startExam() {
-        current = 0; selected = -1; answered = false; score = 0
-        started = true; finished = false
+    fun endExam() {
+        if (finished) return
+        finished = true
+        running = false
+        if (!saved && exam.isNotEmpty()) {
+            saved = true
+            val elapsed = ((System.currentTimeMillis() - startedAt) / 1000L).toInt().coerceAtLeast(0)
+            scope.launch {
+                db.examResultDao().insert(ExamResult(
+                    totalQuestions = exam.size,
+                    correctAnswers = score,
+                    durationSeconds = elapsed,
+                    category = category
+                ))
+                refreshHistory()
+            }
+        }
+    }
+
+    LaunchedEffect(running, finished, timerMinutes) {
+        if (running && !finished && timerMinutes > 0) {
+            while (secondsLeft > 0 && running && !finished) {
+                delay(1000)
+                secondsLeft -= 1
+            }
+            if (secondsLeft <= 0 && running && !finished) endExam()
+        }
+    }
+
+    fun begin() {
+        val pool = if (category == "الكل") questions else questions.filter { it.category == category }
+        exam = pool.shuffled().take(examSize.coerceAtMost(pool.size))
+        index = 0
+        selected = -1
+        answered = false
+        score = 0
+        finished = false
+        saved = false
+        secondsLeft = timerMinutes * 60
+        startedAt = System.currentTimeMillis()
+        historyScreen = false
+        running = exam.isNotEmpty()
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().background(Page).verticalScroll(rememberScrollState())
-            .padding(20.dp),
+        Modifier.fillMaxSize().background(Page).verticalScroll(rememberScrollState()).padding(18.dp),
         horizontalAlignment = Alignment.End
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                 Text("MultiChoice", color = Navy, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
-                Text("MEDICAL", color = Teal, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
+                Text("MEDICAL  •  منصة التدريب الطبي", color = Teal, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
-            Surface(shape = RoundedCornerShape(16.dp), color = Navy, modifier = Modifier.size(52.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text("✚", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                }
+            Surface(color = Navy, shape = RoundedCornerShape(15.dp), modifier = Modifier.size(50.dp)) {
+                Box(contentAlignment = Alignment.Center) { Text("✚", color = Color.White, fontSize = 27.sp) }
             }
         }
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(20.dp))
 
         if (loading) {
             CircularProgressIndicator(color = Teal, modifier = Modifier.align(Alignment.CenterHorizontally))
@@ -88,129 +138,133 @@ private fun MedicalApp(repository: QuestionRepository) {
             return@Column
         }
 
-        if (!started) {
-            Surface(color = Navy, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.End) {
-                    Text("مرحباً بك في بنك الأسئلة الطبية", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(8.dp))
-                    Text("تدرّب، اختبر معلوماتك، وراجع تفسير الإجابات.", color = Color(0xFFD8E5EE), textAlign = TextAlign.End)
-                    Spacer(Modifier.height(18.dp))
-                    Text("${questions.size} أسئلة متاحة", color = Color.White, fontWeight = FontWeight.SemiBold)
+        if (historyScreen && !running) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { historyScreen = false }) { Text("رجوع") }
+                Spacer(Modifier.weight(1f))
+                Text("سجل النتائج", color = Navy, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+            }
+            if (history.isEmpty()) {
+                Text("لا توجد اختبارات محفوظة حتى الآن.", modifier = Modifier.fillMaxWidth().padding(25.dp), textAlign = TextAlign.Center)
+            }
+            history.forEach { item ->
+                Surface(color = Color.White, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                    Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.End) {
+                        Text(item.category, color = Navy, fontWeight = FontWeight.Bold)
+                        Text("${item.correctAnswers} / ${item.totalQuestions}  •  ${if (item.totalQuestions > 0) item.correctAnswers * 100 / item.totalQuestions else 0}%", color = Teal, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Text("المدة: ${item.durationSeconds / 60} د ${item.durationSeconds % 60} ث", color = Color.Gray, fontSize = 12.sp)
+                        Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(item.completedAt)), color = Color.Gray, fontSize = 11.sp)
+                    }
+                }
+            }
+        } else if (!running && !finished) {
+            Surface(color = Navy, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.End) {
+                    Text("اختبر معلوماتك الطبية", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text("أسئلة اختيار من متعدد مع تصحيح فوري وتفسير وحفظ سجل الأداء.", color = Color(0xFFD8E5EE), textAlign = TextAlign.End)
+                    Spacer(Modifier.height(12.dp))
+                    Text("${questions.size} سؤال محفوظ على الجهاز", color = Color.White, fontWeight = FontWeight.SemiBold)
                 }
             }
             Spacer(Modifier.height(18.dp))
-            Text("التخصصات", fontSize = 19.sp, color = Navy, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(10.dp))
-            Surface(color = Color.White, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("ابدأ الاختبار", color = Teal, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable { if (questions.isNotEmpty()) startExam() })
-                    Spacer(Modifier.weight(1f))
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("طب الأطفال", color = Navy, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                        Text("أسئلة اختيار من متعدد", color = Color.Gray, fontSize = 13.sp)
-                    }
+            Text("إعداد الاختبار", color = Navy, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+            Text("التصنيف", color = Navy, fontWeight = FontWeight.SemiBold)
+            val categories = listOf("الكل") + questions.map { it.category }.distinct()
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                categories.forEach { item ->
+                    FilterChip(selected = category == item, onClick = { category = item }, label = { Text(item) }, modifier = Modifier.padding(start = 4.dp))
+                }
+            }
+            Text("عدد الأسئلة: ${examSize.coerceAtMost(questions.size)}", color = Navy, fontWeight = FontWeight.SemiBold)
+            Slider(
+                value = examSize.toFloat().coerceIn(1f, questions.size.coerceAtLeast(1).toFloat()),
+                onValueChange = { examSize = it.toInt().coerceAtLeast(1) },
+                valueRange = 1f..questions.size.coerceAtLeast(1).toFloat()
+            )
+            Text("مدة الاختبار", color = Navy, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                listOf(0, 15, 30, 60).forEach { mins ->
+                    FilterChip(selected = timerMinutes == mins, onClick = { timerMinutes = mins }, label = { Text(if (mins == 0) "بدون مؤقت" else "$mins دقيقة") }, modifier = Modifier.padding(start = 4.dp))
                 }
             }
             Spacer(Modifier.height(12.dp))
-            OutlinedButton(
-                onClick = {
-                    message = "جارٍ الاتصال بالمصدر السحابي…"
-                    scope.launch {
-                        repository.syncFromCloud()
-                            .onSuccess { count ->
-                                questions = repository.questions()
-                                message = "تمت مزامنة $count سؤالاً"
-                            }
-                            .onFailure { message = it.localizedMessage ?: "فشلت المزامنة" }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("مزامنة الأسئلة من السحابة") }
+            Button(onClick = { begin() }, enabled = questions.isNotEmpty(), modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("ابدأ الاختبار") }
+            OutlinedButton(onClick = { historyScreen = true }, modifier = Modifier.fillMaxWidth()) { Text("سجل النتائج (${history.size})") }
+            OutlinedButton(onClick = {
+                message = "جارٍ الاتصال بالسحابة…"
+                scope.launch {
+                    repository.syncFromCloud()
+                        .onSuccess { count -> questions = repository.questions(); message = "تمت مزامنة $count سؤالاً" }
+                        .onFailure { message = it.localizedMessage ?: "فشلت المزامنة" }
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("مزامنة الأسئلة من السحابة") }
             Text(message, color = Color.Gray, fontSize = 12.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-            Spacer(Modifier.height(22.dp))
-            Text("ملاحظة: الأسئلة الحالية نموذجية للتجربة التعليمية وليست بديلاً عن المراجع الطبية المعتمدة.", color = Color.Gray, fontSize = 12.sp, textAlign = TextAlign.End)
+            Spacer(Modifier.height(12.dp))
+            Text("المحتوى الحالي تجريبي ومحدود؛ يجب تدقيق الأسئلة والإجابات من مراجع طبية حديثة قبل استخدامه في التدريب الرسمي.", color = Color.Gray, fontSize = 12.sp, textAlign = TextAlign.End)
         } else if (finished) {
-            Surface(color = Color.White, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+            Surface(color = Color.White, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("انتهى الاختبار", color = Navy, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                    Text("$score / ${exam.size}", color = Teal, fontSize = 38.sp, fontWeight = FontWeight.ExtraBold)
+                    Text("نسبة النجاح: ${if (exam.isNotEmpty()) score * 100 / exam.size else 0}%", color = Navy, fontSize = 19.sp)
                     Spacer(Modifier.height(16.dp))
-                    Text("$score / ${questions.size}", color = Teal, fontSize = 38.sp, fontWeight = FontWeight.ExtraBold)
-                    Text("إجابات صحيحة", color = Color.Gray)
-                    Spacer(Modifier.height(20.dp))
-                    Button(onClick = { started = false; finished = false }, modifier = Modifier.fillMaxWidth()) {
-                        Text("العودة للرئيسية")
-                    }
+                    Button(onClick = { finished = false; historyScreen = false }, modifier = Modifier.fillMaxWidth()) { Text("الرئيسية") }
+                    OutlinedButton(onClick = { historyScreen = true; finished = false }, modifier = Modifier.fillMaxWidth()) { Text("سجل النتائج") }
                 }
             }
         } else {
-            val q = questions[current]
+            val q = exam[index]
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("${current + 1} / ${questions.size}", color = Teal, fontWeight = FontWeight.Bold)
+                Text("${index + 1} / ${exam.size}", color = Teal, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
                 Text(q.category, color = Navy, fontWeight = FontWeight.Bold)
             }
-            Spacer(Modifier.height(10.dp))
-            LinearProgressIndicator(
-                progress = { (current + 1).toFloat() / questions.size.coerceAtLeast(1) },
-                modifier = Modifier.fillMaxWidth(), color = Teal
-            )
-            Spacer(Modifier.height(22.dp))
-            Surface(color = Color.White, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.End) {
+            if (timerMinutes > 0) {
+                Text("الوقت المتبقي: ${secondsLeft / 60}:${(secondsLeft % 60).toString().padStart(2, '0')}", color = if (secondsLeft < 60) Color.Red else Navy, fontWeight = FontWeight.Bold)
+            }
+            LinearProgressIndicator(progress = { (index + 1).toFloat() / exam.size.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth(), color = Teal)
+            Spacer(Modifier.height(16.dp))
+            Surface(color = Color.White, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.End) {
                     Text("السؤال", color = Teal, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(8.dp))
                     Text(q.question, color = Navy, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
                 }
             }
-            Spacer(Modifier.height(16.dp))
-            q.options().forEachIndexed { index, option ->
+            q.options().forEachIndexed { optionIndex, option ->
                 val bg = when {
-                    answered && index == q.correctIndex -> Color(0xFFE1F5EC)
-                    answered && index == selected -> Color(0xFFFFE8E6)
-                    selected == index -> Color(0xFFDDF4F1)
+                    answered && optionIndex == q.correctIndex -> Color(0xFFE1F5EC)
+                    answered && optionIndex == selected -> Color(0xFFFFE8E6)
+                    selected == optionIndex -> Color(0xFFDDF4F1)
                     else -> Color.White
                 }
-                Surface(
-                    color = bg, shape = RoundedCornerShape(15.dp),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)
-                        .clickable(enabled = !answered) { selected = index }
-                ) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = bg, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(enabled = !answered) { selected = optionIndex }) {
+                    Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(option, modifier = Modifier.weight(1f), color = Navy, textAlign = TextAlign.End)
-                        Spacer(Modifier.width(12.dp))
-                        Text(listOf("أ", "ب", "ج", "د")[index], color = Teal, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(10.dp))
+                        Text(listOf("أ", "ب", "ج", "د")[optionIndex], color = Teal, fontWeight = FontWeight.Bold)
                     }
                 }
             }
             if (answered) {
-                Spacer(Modifier.height(12.dp))
-                Surface(color = Color(0xFFEAF2F8), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(15.dp), horizontalAlignment = Alignment.End) {
+                Surface(color = Color(0xFFEAF2F8), shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.End) {
                         Text(if (selected == q.correctIndex) "إجابة صحيحة ✓" else "الإجابة الصحيحة: ${q.options()[q.correctIndex]}", color = Teal, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(6.dp))
                         Text(q.explanation, color = Navy, textAlign = TextAlign.End)
                     }
                 }
             }
-            Spacer(Modifier.height(18.dp))
-            Button(
-                onClick = {
-                    if (!answered) {
-                        if (selected >= 0) { answered = true; if (selected == q.correctIndex) score++ }
-                    } else {
-                        if (current < questions.lastIndex) {
-                            current++; selected = -1; answered = false
-                        } else finished = true
-                    }
-                },
-                enabled = answered || selected >= 0,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Text(if (!answered) "تأكيد الإجابة" else if (current == questions.lastIndex) "عرض النتيجة" else "السؤال التالي")
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = {
+                if (!answered) {
+                    if (selected >= 0) { answered = true; if (selected == q.correctIndex) score++ }
+                } else if (index < exam.lastIndex) {
+                    index++; selected = -1; answered = false
+                } else endExam()
+            }, enabled = answered || selected >= 0, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                Text(if (!answered) "تأكيد الإجابة" else if (index == exam.lastIndex) "إنهاء وعرض النتيجة" else "السؤال التالي")
             }
-            TextButton(onClick = { started = false }) { Text("إنهاء والعودة للرئيسية") }
+            TextButton(onClick = { endExam() }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("إنهاء الاختبار") }
         }
     }
 }
