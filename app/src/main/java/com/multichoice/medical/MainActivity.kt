@@ -12,6 +12,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -34,8 +36,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val db = QuestionDatabase.get(this)
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = Teal, secondary = Navy, background = Page)) {
-                MedicalApp(QuestionRepository(db.questionDao()), db)
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                MaterialTheme(colorScheme = lightColorScheme(primary = Teal, secondary = Navy, background = Page)) {
+                    MedicalApp(QuestionRepository(db.questionDao()), db)
+                }
             }
         }
     }
