@@ -18,8 +18,12 @@ Install Termux from its official F-Droid or GitHub distribution, then:
 ```sh
 pkg update && pkg upgrade
 pkg install golang postgresql git
-mkdir -p ~/services/multichoice
+mkdir -p ~/services
+cd ~/services
+git clone --branch feature/commercial-platform https://github.com/osama-alshawabkeh/osama.git multichoice
 ```
+
+The backend source is now at `~/services/multichoice/backend`. Run the following commands from the repository root unless noted otherwise.
 
 Initialize PostgreSQL once:
 
