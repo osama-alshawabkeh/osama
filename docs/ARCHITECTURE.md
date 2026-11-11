@@ -1,43 +1,56 @@
 # MultiChoice Medical — Commercial Platform Architecture
 
 ## Product decision
-Two separately installable Android applications share one backend:
-- Client: com.multichoice.medical — learner experience.
-- Admin: com.multichoice.admin — privileged content and business operations.
+Two separately installable Android applications share one independently hosted backend:
+- Client: `com.multichoice.medical` — learner experience.
+- Admin: `com.multichoice.admin` — privileged content and business operations.
+- Backend: Go + Fiber API and PostgreSQL, running directly on the dedicated Android phone through Termux. Docker is not part of this deployment.
 
-The applications are separate trust boundaries, not merely two navigation modes in one APK. Admin authorization must be enforced by PostgreSQL RLS and server-side functions; hiding admin screens in a client is never authorization.
+The two apps are separate trust boundaries. Admin authorization is enforced by the backend, never by hiding screens in an APK.
+
+## Runtime topology
+- Android phone: Termux, PostgreSQL, Go API service.
+- API: Fiber HTTP server; local development bind defaults to `127.0.0.1:8080`.
+- Database: PostgreSQL bound to loopback on port 5432.
+- Android apps: call the API over the local network or a secured remote connection after authentication and TLS are implemented.
+- CI: GitHub Actions compiles/tests the Go backend and builds the two Android apps.
+
+The phone is a development/private pilot host, not a guaranteed 24/7 commercial server. Android battery management, process reclamation, reboots, mobile-network changes and Wi-Fi availability can interrupt it. Production launch requires a resilient hosting and backup strategy.
 
 ## Repository layout
-- app/: existing learner application; its application ID remains stable for upgrades.
-- adminApp/: independent administrator application.
-- supabase/migrations/: versioned database migrations.
-- .github/workflows/android-build.yml: independent client/admin build and artifact jobs.
+- `app/`: existing learner Android application; package identity is retained.
+- `adminApp/`: independent administrator Android application.
+- `backend/`: Go/Fiber API, PostgreSQL migration and Termux scripts.
+- `supabase/migrations/`: earlier Supabase schema draft; not used by the new phone-hosted backend.
+- `.github/workflows/android-build.yml`: independent Android APK builds.
+- `.github/workflows/backend-build.yml`: Go test/build workflow.
 
-## Target architecture
-1. Android presentation: Kotlin, Jetpack Compose, Material 3, Arabic RTL, adaptive layouts.
-2. App architecture: feature-oriented UI, ViewModels, repositories, immutable UI state, coroutines/Flow.
-3. Local data: Room cache for downloaded learner content and offline exam sessions. Never cache privileged answer keys in a public client data set.
-4. Backend: Supabase Auth, PostgreSQL, Storage, Edge Functions.
-5. Authorization: profile roles (student, content_editor, admin, owner), RLS on every exposed table, server-side role checks, audit events for privileged mutations.
-6. Notifications: Firebase Cloud Messaging, with device tokens tied to authenticated users.
-7. Commercial services: subscription entitlements stored server-side; payment provider webhooks update entitlements. Never trust a client-supplied subscription state.
-8. Delivery: GitHub Actions builds two independent debug APK artifacts. Release signing uses protected GitHub environment secrets and is a separate future workflow.
+## Backend architecture
+1. HTTP/API: Go 1.23+, Fiber v2, versioned `/api/v1` routes.
+2. Database: PostgreSQL, accessed through pgx connection pool.
+3. Identity: backend-managed accounts, password hashing, short-lived access tokens and refresh-token rotation (next implementation phase).
+4. Authorization: server-side role checks for `student`, `content_editor`, `admin`, `owner`; all privileged mutations audited.
+5. Content: subjects, questions, options, protected answer keys, exams and exam composition.
+6. Commercial: subscription entitlements updated only by verified payment callbacks; never trust client-submitted subscription state.
+7. Media: private object storage or an authenticated media service; do not expose arbitrary phone filesystem paths.
+8. Observability: structured logs, health/readiness endpoints, backups and database migration tracking.
 
-## Core product modules
+## Question security
+Correct answers must never be returned from learner-facing question endpoints. Answer keys stay in a separate table and grading happens inside trusted backend logic. Do not ship database credentials, JWT signing secrets or administrator passwords in either APK or in Git.
 
-### Client
+## Client application modules
 - onboarding, sign-in, password recovery and profile
 - home dashboard and subject catalogue
 - searchable/filterable question bank
-- timed and untimed exams, configurable exam modes
+- timed and untimed exams
 - answer explanations and references
-- bookmarks, incorrect-answer review and spaced revision
+- bookmarks, incorrect-answer review and revision
 - attempt history, analytics and progress goals
-- subscription plans, entitlements and notifications
+- subscription plans and notifications
 - offline cache with explicit sync state
 
-### Admin
-- secure sign-in and role verification
+## Admin application modules
+- secure sign-in and server-side role verification
 - operational dashboard and audit log
 - subjects, categories, tags and question CRUD
 - rich question editor: text, images, tables, options, correct answer, explanation, references and difficulty
@@ -46,18 +59,15 @@ The applications are separate trust boundaries, not merely two navigation modes 
 - user and role management
 - subscription/entitlement oversight
 - exam templates, analytics, announcements and notification campaigns
-- moderation, content versioning and restore
-
-## Question security
-Question prompts and options may be readable by entitled authenticated learners. Correct answers and grading rules must not be exposed through a public table or client-readable API. Store answer keys separately and grade attempts in a trusted Edge Function or RPC with server-side authorization. Do not ship service-role credentials in either APK.
+- content versioning and restore
 
 ## Delivery phases
-- Phase 1 — Foundation: separate Android modules, CI artifacts, architecture contract, secure database migration.
-- Phase 2 — Identity: Supabase Auth, profiles, role provisioning, session lifecycle, RLS tests.
-- Phase 3 — Content operations: admin question editor, taxonomy, media storage, review/publish workflow, import/export.
-- Phase 4 — Learner product: full catalogue, exam engine, bookmarks, revision, analytics and offline sync.
-- Phase 5 — Commercial: subscription catalogue, payment integration/webhooks, entitlements, invoices/receipts and notification service.
-- Phase 6 — Production: automated tests, security review, observability, privacy policy, backups, signed release builds and Play Store preparation.
+- Phase 1 — Foundation: separate Android modules, Go backend skeleton, PostgreSQL schema, Termux setup and CI.
+- Phase 2 — Identity: registration/login, password hashing, token lifecycle, role provisioning and authorization tests.
+- Phase 3 — Content operations: admin question editor, taxonomy, media handling, review/publish workflow and import/export.
+- Phase 4 — Learner product: catalogue, exam engine, bookmarks, revision, analytics and offline sync.
+- Phase 5 — Commercial: subscription catalogue, payment provider integration/webhooks, entitlements and notifications.
+- Phase 6 — Production: security review, automated tests, monitoring, backups, TLS, signed release builds and reliable hosting.
 
 ## Current implementation status
-The admin Android module and its initial navigation/dashboard shell are established in Phase 1. Its metric values are intentionally placeholders until authenticated backend integration exists. The existing learner app is retained to avoid breaking its package identity. The SQL migration is a foundation and must be applied and tested in a Supabase project before production use.
+The admin Android module has an initial Arabic RTL navigation/dashboard shell. The Go backend currently provides health/readiness and API version endpoints and checks PostgreSQL connectivity. A local PostgreSQL schema and Termux scripts are committed. Authentication, content CRUD, grading, subscriptions, TLS and remote access are not implemented yet. The schema must be applied and tested before use.
